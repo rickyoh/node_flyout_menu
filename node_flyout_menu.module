@@ -1,0 +1,249 @@
+<?php
+function node_flyout_menu_form_alter(&$form, $form_state, $form_id) {
+
+if ($form['original_item']['#value']['p2'] == 0){
+
+  if ($form_id == 'menu_edit_item') {
+    if (isset($form['mlid']['#value'])) {
+      $options = unserialize(db_query('SELECT options FROM {menu_links} WHERE mlid = :mlid', array(':mlid' => $form['mlid']['#value']))->fetchField());
+    }
+      
+    if (!isset($options) || !isset($options['menu_flyout'])) {
+      $options = array('menu_flyout' => array('enable' => NULL, 'flyout_select' => NULL, 'align_flyout' => NULL, 'flyout_size' => NULL));
+    }
+ 
+    //get select options   
+$flyouts = db_query("SELECT * FROM node WHERE node.type =  'menu_fly_outs'");
+$flyout_result = $flyouts->fetchAll();
+foreach ($flyout_result as $flyoutitem){
+$flyoutopts[$flyoutitem->nid] = $flyoutitem->title;
+}
+
+
+if (!isset($flyoutopts)){
+$flyoutopts = array();
+}
+        
+    $form['flyout'] = array(
+      '#type' => 'fieldset',
+      '#weight' => 5,
+      '#title' => t('Fly out block settings'),
+      '#description' => t('If checked, the following piece of content will be used in your flyout.'),
+      '#attributes' => array('classes' => array('theme-settings-bottom')),
+    );
+    $form['flyout']["enable"] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Use a flyout'),
+      '#default_value' => $options['menu_flyout']['enable'],
+      '#tree' => FALSE,
+      '#description' => t('Check this if you want this flyout to be used.'),
+    );
+
+     $form['flyout']['flyout_select'] = array(
+        '#title' => t('Select Block'),
+        '#type' => 'select',
+        '#options' => $flyoutopts,
+        '#empty_option' => '<' . t('Select Flyout Node') . '>',
+        '#default_value' => $options['menu_flyout']['flyout_select'],
+        '#description' => t('Select which flyout to use for this menu item.'),
+        '#required' => FALSE,
+    );
+  
+/*
+//* TODO- add options
+  
+    $form['flyout']["align_flyout"] = array(
+     '#title' => t('Alignment'),
+        '#type' => 'select',
+       // '#options' => image_style_options(FALSE),
+        '#options' => array('alignleft' => 'Align Left', 'alignright' => 'Align Right'),
+        '#empty_option' => '<' . t('Alignment') . '>',
+        '#default_value' => $options['menu_flyout']['align_flyout'],
+        '#description' => t('Select how this flyout aligns'),
+        '#required' => FALSE,
+    );
+
+    $form['flyout']["flyout_size"] = array(
+     '#title' => t('Size'),
+        '#type' => 'select',
+       // '#options' => image_style_options(FALSE),
+        '#options' => array('threecol' => 'Three Columns', 'twocol' => 'Two Columns', 'onecol' => 'One Column'),
+        '#empty_option' => '<' . t('Size') . '>',
+        '#default_value' => $options['menu_flyout']['flyout_size'],
+        '#description' => t('Select how large this flyout is horizontaly'),
+        '#required' => FALSE,
+    );
+*/  
+
+    $form['submit']['#weight'] = 9;
+    $form['delete']['#weight'] = 10;
+
+    $form['#attributes']['enctype'] = 'multipart/form-data';
+    $form['#submit'][] = 'node_flyout_menu_form_submit';
+  }
+
+}
+
+}
+
+
+function node_flyout_menu_form_submit($form, &$form_state) {
+
+
+
+/*
+  if (empty($form_state['values']['image_style'])) {
+    $validate['file_validate_image_resolution'] = array(variable_get('menu_icons_file_validate_image_resolution', '45x45'));
+  }
+*/
+  $options = unserialize(db_query('SELECT options FROM {menu_links} WHERE mlid = :mlid', array(':mlid' => $form_state['values']['mlid']))->fetchField());
+  $options['menu_flyout'] = array(
+    'enable' => $form_state['values']['enable'],
+    'flyout_select' => $form_state['values']['flyout_select'],
+    'align_flyout' => $form_state['values']['align_flyout'],
+	'flyout_size' => $form_state['values']['flyout_size'],
+  );
+
+  if (!isset($options['attributes'])) {
+    $options['attributes'] = array();
+  }
+  if (!isset($options['attributes']['class'])) {
+    $options['attributes']['class'] = array();
+  }
+
+
+  if (empty($options['attributes']['class'])) {
+    unset($options['attributes']['class']);
+  }
+
+  // TODO Please review the conversion of this statement to the D7 database API syntax.
+  /* db_query('UPDATE {menu_links} SET options = "%s" WHERE mlid = %d', serialize($options), $form_state['values']['menu']['mlid']) */
+  db_update('menu_links')
+  ->fields(array(
+    'options' => serialize($options),
+  ))
+  ->condition('mlid', $form_state['values']['mlid'])
+  ->execute();
+
+  // Regenerate the css file
+  //menu_icons_css_generate();
+}
+
+
+
+/**
+ * Implements hook_theme().
+ */
+function node_flyout_menu_theme() {
+  return array(
+    'flyout_menu' => array(
+      'variables' => array('flyout' => NULL),
+      'template' => 'flyout_menu',
+    ),
+  );
+}
+
+function node_flyout_menu_block_info() {
+//Define all the blocks
+$blocks['flyout_menu']['info'] = t('Flyout Menu');
+  return $blocks;
+}
+
+
+
+function node_flyout_menu_block_view($delta = '') {
+  $block = array();
+    switch ($delta) {
+      case 'flyout_menu': 
+
+    $block['content'] = '';
+
+  $pid = variable_get('menu_main_links_source', 'main-menu');
+   $tree = menu_tree($pid);
+ /*
+  print '<pre>';
+  print_r($tree);
+    print '</pre>';
+  */
+  $tree = str_replace(' class="menu"', '', $tree);
+  
+  $block['content'] .= '<ul id="nav">';
+  $flyout = array();
+  foreach ($tree as $key => $value){
+  
+  if (isset($value['#title']) && strlen($value['#title']) > 1){
+$list_class = '';
+
+$class_count = 0;  
+foreach ($value['#attributes']['class'] as $class){
+if ($class_count > 0) {$list_class .= ' ';}
+$list_class .= $class;
+$class_count++;
+}
+ 
+if (strlen(drupal_lookup_path(alias, $value['#href'])) > 1){
+$topLevelUri = drupal_lookup_path(alias, $value['#href']);
+}else{
+$topLevelUri = $value['#href'];
+}
+
+
+
+ 
+$block['content'] .=  '<li class="'.$list_class.' '.$value['#localized_options']['menu_flyout']['flyout_align'].' menu_link_'.$value['#original_link']['mlid'].'"><a class="menu_link_'.$value['#original_link']['mlid'].'" href="/'.$topLevelUri.'">';
+$block['content'] .=  $value['#title'].'</a>';
+		if (isset($value['#localized_options']['menu_flyout'])){
+
+if ($value['#localized_options']['menu_flyout']['enable'] != 1){
+$dropclass = ' onecollist';
+}	
+$block['content'] .=  '<div class="drop '.$value['#localized_options']['menu_flyout']['flyout_size'].''.$dropclass.'" style="overflow-x: hidden; overflow-y: hidden; display: none;">';
+
+
+
+$block['content'] .=  '<div class="c">';
+		$flyoutnid = $value['#localized_options']['menu_flyout']['flyout_select'];
+		//$flyout[$flyoutnid] = node_load(array('nid' => $flyoutnid)); 
+		$flyout	= node_load(array('nid' => $flyoutnid));
+		
+		if ($value['#localized_options']['menu_flyout']['flyout_size'] == 'threecol' || $value['#localized_options']['menu_flyout']['flyout_size'] == 'twocol' || $value['#localized_options']['menu_flyout']['flyout_size'] == 'onecol'){
+		$block['content'] .=  theme(array('flyout_menu'), array('flyout' => $flyout));
+		}else{
+		$block['content'] .= node_flyout_menu_links_below_mlid($value['#original_link']['mlid']);
+		}
+		//$flyout->body['und'][0]['value'];
+		//print node_flyout_menu_links_below_mlid($value['#original_link']['mlid']);
+
+		
+	$block['content'] .=  '';	
+	$block['content'] .=  '</div></div>';
+		}
+	$block['content'] .=  '</li>';
+		}
+	}
+	
+ $block['content'] .= '</ul>';	
+	
+	break;
+
+		
+	}
+
+return $block;
+}
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  
+
+?>

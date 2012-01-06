@@ -1,0 +1,9 @@
+name = Node Flyout Menu
+description = Lists top level menu items and creates markup within the menu item to work as a flyout.
+dependencies[] = menu
+core = 7.x
+
+core = "7.x"
+project = "node_flyout_menu"
+
+
